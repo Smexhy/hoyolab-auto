@@ -6,6 +6,7 @@
     "start": "node index.js",
     "watch": "nodemon index.js",
     "test": "node --test",
+    "auth:import": "node scripts/import-auth-cookie.js",
     "migrate": "node convert.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
