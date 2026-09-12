@@ -1,4 +1,5 @@
 let version;
+const CodeRedemption = require("../../object/code-redemption.js");
 
 const fetchData = async () => {
 	if (typeof version === "undefined") {
@@ -48,34 +49,8 @@ const fetchData = async () => {
 };
 
 const redeemCodes = async (accountData, code) => {
-	const Cookie = app.HoyoLab.parseCookie(accountData.cookie, {
-		whitelist: ["cookie_token_v2", "account_mid_v2", "account_id_v2", "cookie_token", "account_id"]
-	});
-
-	const res = await app.Got("HoYoLab", {
-		url: "https://sg-hk4e-api.hoyoverse.com/common/apicdkey/api/webExchangeCdkey",
-		searchParams: {
-			uid: accountData.uid,
-			region: accountData.region,
-			lang: "en",
-			cdkey: code.code,
-			game_biz: "hk4e_global",
-			sLangKey: app.Config.get("language") || "en-us"
-		},
-		headers: { Cookie }
-	});
-
-	if (res.statusCode !== 200) {
-		throw new app.Error({
-			message: "API returned non-200 status code",
-			args: {
-				statusCode: res.statusCode,
-				body: res.body
-			}
-		});
-	}
-
-	const retcode = res.body.retcode;
+	const result = await CodeRedemption.redeem("genshin", accountData, code.code);
+	const retcode = result.retcode;
 	if (retcode === -2001 || retcode === -2003) {
 		app.Logger.log(`CodeRedeem:Genshin:${accountData.uid}`, {
 			code: code.code,
@@ -88,11 +63,11 @@ const redeemCodes = async (accountData, code) => {
 		};
 	}
 
-	if (retcode !== 0) {
-		app.Logger.info(`CodeRedeem:Genshin:${accountData.uid}`, `${code.code} - ${res.body.message}`);
+	if (!result.success) {
+		app.Logger.info(`CodeRedeem:Genshin:${accountData.uid}`, `${code.code} - ${result.message}`);
 		return {
 			success: false,
-			reason: res.body.message
+			reason: result.message
 		};
 	}
 

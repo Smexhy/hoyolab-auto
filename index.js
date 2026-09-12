@@ -3,6 +3,7 @@ const Config = require("./classes/config.js");
 const Got = require("./classes/got.js");
 
 const Cache = require("./singleton/cache.js");
+const AuthState = require("./singleton/auth-state.js");
 const Logger = require("./singleton/logger.js");
 const Utils = require("./singleton/utils.js");
 const TestNotification = require("./singleton/test-notification.js");
@@ -35,6 +36,7 @@ const config = require("./config.js");
 
 		Got: await Got.initialize(),
 		Cache: new Cache(),
+		AuthState: new AuthState(),
 		Logger: new Logger(config.loglevel),
 		Utils: new Utils(),
 		TestNotification
@@ -75,6 +77,7 @@ const config = require("./config.js");
 		Platform,
 		HoyoLab
 	};
+	await HoyoLab.refreshStoredCookies();
 
 	const hoyoPromises = [];
 	for (const account of accounts) {

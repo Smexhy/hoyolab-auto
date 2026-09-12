@@ -1,5 +1,7 @@
 const DataCache = require("./cache.js");
 const CustomHoyoError = require("./error-messages.js");
+const Cookie = require("../object/cookie.js");
+const HoyoAuth = require("../object/hoyo-auth.js");
 
 module.exports = class HoyoLab {
 	#id;
@@ -13,7 +15,7 @@ module.exports = class HoyoLab {
 
 	/** @type {HoyoLab[]} */
 	static list = [];
-	static webAPI = "https://webapi-os.account.hoyoverse.com/Api/fetch_cookie_accountinfo";
+	static webAPI = "https://sg-public-api.hoyoverse.com/account/ma-passport/token/getBySToken";
 
 	constructor (name, config, defaults = {}) {
 		this.#name = name;
@@ -58,9 +60,12 @@ module.exports = class HoyoLab {
 				continue;
 			}
 
+			const preparedCookie = app.AuthState.prepareCookie(account.cookie);
+
 			if (this.#name === "honkai" || this.#name === "tot") {
-				const parsedCookie = this.#parseCookie(account.cookie);
-				const ltuid = account.cookie.match(/ltuid(?:|_v2)=([^;]+)/)[1];
+				const parsedCookie = this.#parseCookie(preparedCookie);
+				const cookieMap = Cookie.parse(preparedCookie);
+				const ltuid = cookieMap.ltuid_v2 ?? cookieMap.ltuid;
 				this.#data.push({
 					cookie: parsedCookie.cookie,
 					ltuid,
@@ -165,8 +170,9 @@ module.exports = class HoyoLab {
 				});
 			}
 
-			const parsedCookie = this.#parseCookie(account.cookie);
-			const ltuid = account.cookie.match(/ltuid(?:|_v2)=([^;]+)/)[1];
+			const parsedCookie = this.#parseCookie(preparedCookie);
+			const cookieMap = Cookie.parse(preparedCookie);
+			const ltuid = cookieMap.ltuid_v2 ?? cookieMap.ltuid;
 
 			this.#data.push({
 				cookie: parsedCookie.cookie,
@@ -219,13 +225,7 @@ module.exports = class HoyoLab {
 	destroy () {}
 
 	#parseCookie (cookie) {
-		const cookies = cookie.split("; ");
-		const cookieMap = Object.fromEntries(
-			cookies.map(c => {
-				const [key, value] = c.split("=");
-				return [key, value];
-			})
-		);
+		const cookieMap = Cookie.parse(cookie);
 
 		const {
 			ltoken_v2,
@@ -238,8 +238,7 @@ module.exports = class HoyoLab {
 
 		if (!ltoken_v2 || !ltuid_v2 || !ltmid_v2) {
 			throw new app.Error({
-				message: "No ltoken_v2, ltuid_v2, or ltmid_v2 found in cookie.",
-				args: { cookie }
+				message: "No ltoken_v2, ltuid_v2, or ltmid_v2 found in cookie."
 			});
 		}
 
@@ -275,38 +274,57 @@ module.exports = class HoyoLab {
 			cookieObj.account_id_v2 = cookie.account_id_v2;
 		}
 
-		return Object.entries(cookieObj)
-			.map(([key, value]) => `${key}=${value}`)
-			.join("; ");
+		return Cookie.serialize(cookieObj);
 	}
 
 	static parseCookie (cookie, options = {}) {
-		const { whitelist = [], blacklist = [], separator = ";" } = options;
+		return Cookie.serialize(cookie, options);
+	}
 
-		const cookiesArray = cookie.split(separator).map(c => c.trim());
-		const cookieMap = Object.fromEntries(
-			cookiesArray.map(c => {
-				const [key, value] = c.split("=");
-				return [key, value];
-			})
-		);
-
-		if (whitelist.length !== 0) {
-			const filteredCookiesArray = Object.keys(cookieMap)
-				.filter(key => whitelist.includes(key))
-				.map(key => `${key}=${cookieMap[key]}`);
-
-			return filteredCookiesArray.join(`${separator} `);
-		}
-		if (blacklist.length !== 0) {
-			const filteredCookiesArray = Object.keys(cookieMap)
-				.filter(key => !blacklist.includes(key))
-				.map(key => `${key}=${cookieMap[key]}`);
-
-			return filteredCookiesArray.join(`${separator} `);
+	static async refreshCookie (accountData) {
+		const platform = HoyoLab.get(accountData.platform);
+		const result = await platform.updateCookie(accountData);
+		if (!result.success) {
+			return result;
 		}
 
-		return cookie;
+		app.AuthState.updateCookie(accountData.cookie, result.data);
+		const accountId = app.AuthState.getAccountId(accountData.cookie);
+		for (const item of HoyoLab.list.flatMap(instance => [...instance.data, ...instance.accounts])) {
+			if (app.AuthState.getAccountId(item.cookie) === accountId) {
+				item.cookie = app.AuthState.prepareCookie(item.cookie);
+			}
+		}
+
+		return result;
+	}
+
+	static async refreshStoredCookies () {
+		const refreshableAccounts = new Map();
+		for (const platform of HoyoLab.list) {
+			for (const account of platform.data) {
+				const accountId = app.AuthState.getAccountId(account.cookie);
+				if (accountId && app.AuthState.canRefresh(account.cookie)) {
+					refreshableAccounts.set(accountId, {
+						...account,
+						platform: platform.name,
+						uid: account.ltuid
+					});
+				}
+			}
+		}
+
+		for (const account of refreshableAccounts.values()) {
+			try {
+				const result = await HoyoLab.refreshCookie(account);
+				if (!result.success) {
+					app.Logger.warn("HoyoAuth", `Could not renew stored credentials for account ${account.uid}: ${result.reason}`);
+				}
+			}
+			catch (e) {
+				app.Logger.error("HoyoAuth", `Could not renew stored credentials for account ${account.uid}: ${e.message}`);
+			}
+		}
 	}
 
 	update (account) {
@@ -534,53 +552,84 @@ module.exports = class HoyoLab {
 	}
 
 	async updateCookie (accountData) {
+		const refreshCookie = app.AuthState.getRefreshCookie(accountData.cookie);
+		if (!refreshCookie) {
+			return {
+				success: false,
+				unavailable: true,
+				reason: "No persistent refresh credential is configured"
+			};
+		}
+
 		const res = await app.Got("HoYoLab", {
 			url: this.webAPI,
+			method: "POST",
 			responseType: "json",
 			throwHttpErrors: false,
+			json: {
+				dst_token_types: [2, 4]
+			},
 			headers: {
-				Cookie: accountData.cookie
+				...HoyoAuth.getRefreshHeaders(),
+				Cookie: refreshCookie
 			}
 		});
 
-		if (!res.ok) {
+		if (res.statusCode !== 200) {
 			app.Logger.log(`${this.fullName}:UpdateCookie`, {
 				message: "Failed to update cookie",
 				args: {
 					platform: this.name,
 					uid: accountData.uid,
 					region: accountData.region,
-					body: res.body
+					statusCode: res.statusCode
 				}
 			});
 
-			return { success: false };
+			return {
+				success: false,
+				reason: `HTTP ${res.statusCode}`
+			};
 		}
 
-		const data = res.body.data;
-		if (!data || data.status !== 1 || !data?.cookie_info) {
+		if (res.body?.retcode !== 0 || !Array.isArray(res.body?.data?.tokens)) {
 			app.Logger.log(`${this.fullName}:UpdateCookie`, {
 				message: "Failed to update cookie",
 				args: {
 					platform: this.name,
 					uid: accountData.uid,
 					region: accountData.region,
-					body: JSON.parse(res.body)
+					retcode: res.body?.retcode,
+					reason: res.body?.message
 				}
 			});
 
-			return { success: false };
+			return {
+				success: false,
+				reason: res.body?.message ?? "Invalid refresh response"
+			};
 		}
 
-		const accountId = data.cookie_info.account_id;
-		const token = data.cookie_info.cookie_token;
+		const tokens = {};
+		for (const token of res.body.data.tokens) {
+			if (token.token_type === 2) {
+				tokens.ltoken_v2 = token.token;
+			}
+			else if (token.token_type === 4) {
+				tokens.cookie_token_v2 = token.token;
+			}
+		}
+
+		if (!tokens.ltoken_v2 || !tokens.cookie_token_v2) {
+			return {
+				success: false,
+				reason: "Refresh response did not include both required tokens"
+			};
+		}
 
 		return {
 			success: true,
-			data: {
-				accountId,
-				token
-			}
+			data: tokens
 		};
 	}
 

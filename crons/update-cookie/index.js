@@ -5,26 +5,34 @@ module.exports = {
 	code: (async function updateCookie () {
 		// eslint-disable-next-line object-curly-spacing
 		const accounts = app.HoyoLab.getActiveAccounts({ blacklist: ["honkai", "tot"] });
-		if (accounts.length === 0) {
+		const refreshableAccounts = new Map();
+		for (const account of accounts) {
+			const accountId = app.AuthState.getAccountId(account.cookie);
+			if (accountId && app.AuthState.canRefresh(account.cookie)) {
+				refreshableAccounts.set(accountId, account);
+			}
+		}
+
+		if (refreshableAccounts.size === 0) {
 			return;
 		}
 
-		for (const account of accounts) {
-			const platform = app.HoyoLab.get(account.platform);
-			const refreshCookie = await platform.updateCookie(account);
-			if (!refreshCookie) {
-				continue;
+		let updated = 0;
+		for (const account of refreshableAccounts.values()) {
+			try {
+				const result = await app.HoyoLab.refreshCookie(account);
+				if (result.success) {
+					updated++;
+				}
+				else {
+					app.Logger.warn("Cron:UpdateCookie", `Could not renew credentials for ${account.platform} account ${account.uid}: ${result.reason}`);
+				}
 			}
-
-			const cookieData = app.HoyoLab.parseCookie(account.cookie, {
-				blacklist: ["cookie_token", "account_id"]
-			});
-
-			const { accountId, token } = refreshCookie.data;
-			account.cookie = `${cookieData}; cookie_token=${token}; account_id=${accountId}`;
-			platform.update(account);
+			catch (e) {
+				app.Logger.error("Cron:UpdateCookie", `Could not renew credentials for ${account.platform} account ${account.uid}: ${e.message}`);
+			}
 		}
 
-		app.Logger.debug("Cron:UpdateCookie", "Updated cookie for all accounts");
+		app.Logger.debug("Cron:UpdateCookie", `Renewed credentials for ${updated}/${refreshableAccounts.size} HoYoLAB accounts`);
 	})
 };

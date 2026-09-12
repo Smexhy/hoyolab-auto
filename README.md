@@ -164,6 +164,9 @@ node convert.js
 ## Usage
 For a detailed usage guide, refer to this gist: [Cookie Guide](https://gist.github.com/torikushiii/59eff33fc8ea89dbc0b2e7652db9d3fd).
 
+For automatic renewal of expiring code-redemption credentials, see
+[Persistent cookie refresh](./docs/PERSISTENT_COOKIE_REFRESH.md).
+
 ## Notifications Setup
 For setting up Discord or Telegram notifications, refer to the [setup folder](https://github.com/torikushiii/hoyolab-auto/tree/main/setup).
 
