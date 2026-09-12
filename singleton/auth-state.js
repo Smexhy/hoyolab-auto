@@ -45,18 +45,30 @@ module.exports = class AuthState {
 	prepareCookie (cookie) {
 		const parsed = Cookie.parse(cookie);
 		const accountId = this.getAccountId(cookie);
+		const stored = accountId ? this.#accounts[accountId] ?? {} : {};
 
-		if (accountId && parsed.stoken) {
+		if (accountId && parsed.stoken && parsed.stoken !== stored.stoken) {
 			this.#updateEntry(accountId, parsed);
 		}
 
-		const stored = accountId ? this.#accounts[accountId] ?? {} : {};
+		const current = accountId ? this.#accounts[accountId] ?? {} : {};
 		return Cookie.serialize({
 			...parsed,
-			...stored
+			...current
 		}, {
 			blacklist: ["stoken", "stuid"]
 		});
+	}
+
+	importCookie (cookie) {
+		const parsed = Cookie.parse(cookie);
+		const accountId = this.getAccountId(cookie);
+		if (!accountId || !parsed.stoken) {
+			return false;
+		}
+
+		this.#updateEntry(accountId, parsed);
+		return this.canRefresh(cookie);
 	}
 
 	getRefreshCookie (cookie) {

@@ -10,10 +10,17 @@ cookie also contains the longer-lived `stoken` credential.
    login. The cookie must contain `stoken`, `ltmid_v2`, and `account_id_v2` (or
    `ltuid_v2`). A normal cookie copied from a HoYoLAB page often does not include
    `stoken`.
-2. Stop HoyoLab Auto and run `npm run auth:import` in the application
-   directory. Paste the complete cookie at the hidden prompt. Repeat this once
-   for every HoYoLAB account.
-3. Start HoyoLab Auto and confirm that `data/auth-state.json` was created.
+2. Run `npm run auth:import` in the application directory and paste the
+   complete cookie at the hidden prompt. Repeat this once for every HoYoLAB
+   account.
+3. Start or restart HoyoLab Auto and confirm that `data/auth-state.json` was
+   created.
+
+Portainer and some other web consoles do not expose their input as a regular
+terminal. Leave the container running, connect to it with `/bin/sh`, and run
+`node scripts/import-auth-cookie.js --interactive` directly instead of the npm
+command. This forces the importer to read one hidden line and finish when Enter
+is pressed. Restart the container after all accounts are imported.
 
 As an alternative, add the complete cookie to one configured game entry and
 start HoyoLab Auto once. You may then remove `stoken` from `config.json5`; the
