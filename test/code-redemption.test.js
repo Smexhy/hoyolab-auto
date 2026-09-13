@@ -8,7 +8,7 @@ const ACCOUNT = {
 	region: "prod_official_eur"
 };
 
-test("Star Rail redemption uses the current risk endpoint and form body", () => {
+test("Star Rail redemption uses the current risk endpoint and JSON body", () => {
 	const request = CodeRedemption.buildRequestOptions(
 		"starrail",
 		ACCOUNT,
@@ -17,14 +17,14 @@ test("Star Rail redemption uses the current risk endpoint and form body", () => 
 		{
 			deviceUuid: "00000000-0000-4000-8000-000000000000",
 			language: "en-us",
-			timestamp: 1_700_000_000
+			timestamp: 1_700_000_000_000
 		}
 	);
 
 	assert.equal(request.url, "https://public-operation-hkrpg.hoyoverse.com/common/apicdkey/api/webExchangeCdkeyRisk");
 	assert.equal(request.method, "POST");
 	assert.equal(request.searchParams, undefined);
-	assert.deepEqual(request.form, {
+	assert.deepEqual(request.json, {
 		uid: ACCOUNT.uid,
 		region: ACCOUNT.region,
 		lang: "en",
@@ -32,21 +32,24 @@ test("Star Rail redemption uses the current risk endpoint and form body", () => 
 		game_biz: "hkrpg_global",
 		device_uuid: "00000000-0000-4000-8000-000000000000",
 		platform: "4",
-		t: 1_700_000_000
+		t: 1_700_000_000_000
 	});
 	assert.equal(request.headers.Origin, "https://hsr.hoyoverse.com");
+	assert.equal(request.headers["x-rpc-language"], "en");
 });
 
 test("Zenless redemption uses the current risk endpoint", () => {
 	const request = CodeRedemption.buildRequestOptions("zenless", ACCOUNT, "CODE123", "cookie=value");
 	assert.equal(request.url, "https://public-operation-nap.hoyoverse.com/common/apicdkey/api/webExchangeCdkeyRisk");
 	assert.equal(request.method, "POST");
+	assert.equal(request.form, undefined);
+	assert.equal(request.json.t > 1_000_000_000_000, true);
 });
 
 test("Genshin redemption remains a GET with query parameters", () => {
 	const request = CodeRedemption.buildRequestOptions("genshin", ACCOUNT, "CODE123", "cookie=value");
 	assert.equal(request.url, "https://public-operation-hk4e.hoyoverse.com/common/apicdkey/api/webExchangeCdkey");
 	assert.equal(request.method, "GET");
-	assert.equal(request.form, undefined);
+	assert.equal(request.json, undefined);
 	assert.equal(request.searchParams.cdkey, "CODE123");
 });

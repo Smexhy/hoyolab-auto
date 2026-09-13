@@ -45,16 +45,17 @@ const buildRequestOptions = (game, accountData, code, cookie, options = {}) => {
 		headers: {
 			Cookie: cookie,
 			Origin: gameConfig.origin,
-			Referer: `${gameConfig.origin}/`
+			Referer: `${gameConfig.origin}/`,
+			"x-rpc-language": language
 		}
 	};
 
 	if (gameConfig.method === "POST") {
-		requestOptions.form = {
+		requestOptions.json = {
 			...requestData,
 			device_uuid: options.deviceUuid ?? crypto.randomUUID(),
 			platform: "4",
-			t: options.timestamp ?? Math.floor(Date.now() / 1000)
+			t: options.timestamp ?? Date.now()
 		};
 	}
 	else {
